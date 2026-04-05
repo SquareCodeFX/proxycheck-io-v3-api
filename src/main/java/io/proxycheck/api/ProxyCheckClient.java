@@ -345,6 +345,20 @@ public final class ProxyCheckClient implements AutoCloseable {
     }
 
     /**
+     * Returns a {@link DashboardClient} that shares this client's HTTP connection
+     * pool, timeout, and retry policy. Dashboard calls are free and do not count
+     * against the regular query quota.
+     *
+     * <p>The returned client is not owned by this instance and will not be closed
+     * when this client is closed. Closing it explicitly is a no-op.
+     *
+     * @return a dashboard client configured with this client's settings
+     */
+    public DashboardClient dashboard() {
+        return DashboardClient.from(apiKey, httpClient, timeout, retryPolicy);
+    }
+
+    /**
      * Removes a specific address from the response cache. No-op if caching is
      * not enabled or the address is not cached.
      *

@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./gradlew test:*)",
+      "Bash(cmd /c \"gradlew.bat test 2>&1\")",
+      "Bash(powershell.exe -Command \".\\\\gradlew.bat test 2>&1\")",
+      "Bash(export JAVA_HOME=\"/c/Program Files/Eclipse Adoptium/jdk-21\")",
+      "Bash(./gradlew.bat test:*)",
+      "Bash(export JAVA_HOME=\"/c/Users/squar/.jdks/corretto-21.0.9\")",
+      "Bash(find C:UserssquarIdeaProjectsproxycheck-io-v3-apibuildreportsteststest -name *.xml)",
+      "Bash(grep -h \"tests=\" C:/Users/squar/IdeaProjects/proxycheck-io-v3-api/build/test-results/test/TEST-*.xml)",
+      "Read(//c/Users/squar/IdeaProjects/proxycheck-io-v3-api/**)",
+      "Bash(grep -h \"failures=\" C:/Users/squar/IdeaProjects/proxycheck-io-v3-api/build/test-results/test/TEST-*.xml)",
+      "Bash(grep -h 'testsuite ' C:/Users/squar/IdeaProjects/proxycheck-io-v3-api/build/test-results/test/TEST-*.xml)"
+    ]
+  }
+}
