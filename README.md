@@ -60,8 +60,13 @@ The proxycheck.io API is powerful but raw HTTP calls leave a lot of boilerplate 
 ### Gradle (Kotlin DSL)
 
 ```kotlin
+repositories {
+			mavenCentral()
+			maven { url = uri("https://jitpack.io") }
+}
+
 dependencies {
-    implementation("io.proxycheck:proxycheck-io-v3-api:1.0.0")
+	    implementation("com.github.SquareCodeFX:proxycheck-io-v3-api:b0bbaa59f1")
 }
 ```
 
@@ -69,18 +74,25 @@ dependencies {
 
 ```groovy
 dependencies {
-    implementation 'io.proxycheck:proxycheck-io-v3-api:1.0.0'
+    implementation 'com.github.SquareCodeFX:proxycheck-io-v3-api:b0bbaa59f1'
 }
 ```
 
 ### Maven
 
 ```xml
+<repositories>
+		<repository>
+		    <id>jitpack.io</id>
+		    <url>https://jitpack.io</url>
+		</repository>
+</repositories>
+  
 <dependency>
-    <groupId>io.proxycheck</groupId>
-    <artifactId>proxycheck-io-v3-api</artifactId>
-    <version>1.0.0</version>
-</dependency>
+	    <groupId>com.github.SquareCodeFX</groupId>
+	    <artifactId>proxycheck-io-v3-api</artifactId>
+	    <version>b0bbaa59f1</version>
+	</dependency>
 ```
 
 ### Building from Source
