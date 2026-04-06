@@ -66,7 +66,7 @@ repositories {
 }
 
 dependencies {
-	    implementation("com.github.SquareCodeFX:proxycheck-io-v3-api:0f54d63704")
+	    implementation("com.github.SquareCodeFX:proxycheck-io-v3-api:c7080693fc")
 }
 ```
 
@@ -74,7 +74,7 @@ dependencies {
 
 ```groovy
 dependencies {
-    implementation 'com.github.SquareCodeFX:proxycheck-io-v3-api:0f54d63704'
+    implementation 'com.github.SquareCodeFX:proxycheck-io-v3-api:c7080693fc'
 }
 ```
 
@@ -91,7 +91,7 @@ dependencies {
 <dependency>
 	    <groupId>com.github.SquareCodeFX</groupId>
 	    <artifactId>proxycheck-io-v3-api</artifactId>
-	    <version>0f54d63704</version>
+	    <version>c7080693fc</version>
 	</dependency>
 ```
 
