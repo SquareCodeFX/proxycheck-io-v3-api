@@ -3,12 +3,10 @@ package io.proxycheck.api;
 import io.proxycheck.api.exception.ProxyCheckException;
 import io.proxycheck.api.model.*;
 
-import java.io.IOException;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Collection;
@@ -579,43 +577,8 @@ public final class DashboardClient implements AutoCloseable {
     }
 
     private String executeWithRetry(HttpRequest request) {
-        ProxyCheckException lastException = null;
-        int maxAttempts = 1 + retryPolicy.maxRetries();
-        for (int attempt = 0; attempt < maxAttempts; attempt++) {
-            try {
-                if (attempt > 0) {
-                    Duration delay = retryPolicy.delayForAttempt(attempt - 1);
-                    Thread.sleep(delay.toMillis());
-                }
-                return execute(request);
-            } catch (ProxyCheckException e) {
-                lastException = e;
-                if (!retryPolicy.isRetryable(e) && !retryPolicy.isRetryable(e.getCause())) {
-                    throw e;
-                }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new ProxyCheckException("Retry interrupted", e);
-            }
-        }
-        assert lastException != null;
-        throw lastException;
-    }
-
-    private String execute(HttpRequest request) {
-        try {
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() >= 500) {
-                throw new ProxyCheckException("Server error: HTTP " + response.statusCode(),
-                        response.statusCode());
-            }
-            return response.body();
-        } catch (IOException e) {
-            throw new ProxyCheckException("HTTP request failed: " + e.getMessage(), e);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new ProxyCheckException("HTTP request interrupted", e);
-        }
+        return HttpExecutor.executeWithRetry(retryPolicy,
+                () -> HttpExecutor.execute(httpClient, request), null);
     }
 
     // =========================================================================

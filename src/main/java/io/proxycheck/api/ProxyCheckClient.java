@@ -3,7 +3,6 @@ package io.proxycheck.api;
 import io.proxycheck.api.exception.ProxyCheckException;
 import io.proxycheck.api.model.ProxyCheckResponse;
 
-import java.io.IOException;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.net.http.HttpClient;
@@ -19,6 +18,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
@@ -301,6 +301,11 @@ public final class ProxyCheckClient implements AutoCloseable {
                     putInCache(address, flags, response);
                     fireOnResponse(List.of(address), response);
                     return response;
+                })
+                .whenComplete((r, ex) -> {
+                    if (ex != null) {
+                        fireOnError(List.of(address), unwrapAsException(ex));
+                    }
                 });
     }
 
@@ -317,6 +322,8 @@ public final class ProxyCheckClient implements AutoCloseable {
     /**
      * Asynchronously batch-checks multiple addresses with the specified query flags.
      * Falls back to a single async GET if only one non-whitelisted address remains.
+     * Automatically splits into sequential batches of {@value #MAX_BATCH_SIZE} for
+     * large inputs, matching the behavior of the synchronous {@link #check(Collection, QueryFlags)}.
      *
      * @param addresses the IP addresses and/or emails to check (must not be empty)
      * @param flags     optional query parameters, or {@code null} for defaults
@@ -334,6 +341,10 @@ public final class ProxyCheckClient implements AutoCloseable {
         if (filtered.size() == 1) {
             return checkAsync(filtered.iterator().next(), flags);
         }
+        // Auto-split into sequential async batches of MAX_BATCH_SIZE
+        if (filtered.size() > MAX_BATCH_SIZE) {
+            return checkAsyncInBatches(new ArrayList<>(filtered), flags);
+        }
         fireOnRequest(filtered);
         return executeAsyncWithRetry(buildPostRequest(filtered, flags), 0)
                 .thenApply(json -> {
@@ -341,7 +352,44 @@ public final class ProxyCheckClient implements AutoCloseable {
                     cacheIndividualResults(response, flags);
                     fireOnResponse(filtered, response);
                     return response;
+                })
+                .whenComplete((r, ex) -> {
+                    if (ex != null) {
+                        fireOnError(filtered, unwrapAsException(ex));
+                    }
                 });
+    }
+
+    // Chains async POST requests for each MAX_BATCH_SIZE slice, merging into a
+    // single ProxyCheckResponse, mirroring the behavior of checkInBatches().
+    private CompletableFuture<ProxyCheckResponse> checkAsyncInBatches(List<String> addresses, QueryFlags flags) {
+        CompletableFuture<ProxyCheckResponse.Builder> chain =
+                CompletableFuture.completedFuture(new ProxyCheckResponse.Builder());
+        for (int i = 0; i < addresses.size(); i += MAX_BATCH_SIZE) {
+            final var batch = addresses.subList(i, Math.min(i + MAX_BATCH_SIZE, addresses.size()));
+            chain = chain.thenCompose(combined -> {
+                fireOnRequest(batch);
+                return executeAsyncWithRetry(buildPostRequest(batch, flags), 0)
+                        .thenApply(json -> {
+                            var batchResponse = parseResponse(json, flags);
+                            cacheIndividualResults(batchResponse, flags);
+                            fireOnResponse(batch, batchResponse);
+                            // Merge results; status and metadata come from the last batch
+                            if (batchResponse.status() != null) combined.status(batchResponse.status());
+                            if (batchResponse.message() != null) combined.message(batchResponse.message());
+                            if (batchResponse.node() != null) combined.node(batchResponse.node());
+                            batchResponse.ipResults().forEach(combined::addIpResult);
+                            batchResponse.emailResults().forEach(combined::addEmailResult);
+                            return combined;
+                        })
+                        .whenComplete((r, ex) -> {
+                            if (ex != null) {
+                                fireOnError(batch, unwrapAsException(ex));
+                            }
+                        });
+            });
+        }
+        return chain.thenApply(ProxyCheckResponse.Builder::build);
     }
 
     /**
@@ -428,77 +476,35 @@ public final class ProxyCheckClient implements AutoCloseable {
     }
 
     /**
-     * Executes a request with exponential backoff retry. On failure, checks both
-     * the exception itself and its cause for retryability (e.g., an IOException
-     * wrapped inside a ProxyCheckException).
+     * Executes a request with exponential backoff retry, firing the onRetry
+     * listener event before each retry attempt.
      */
     private String executeWithRetry(HttpRequest request) {
-        ProxyCheckException lastException = null;
-        int maxAttempts = 1 + retryPolicy.maxRetries();
-        for (int attempt = 0; attempt < maxAttempts; attempt++) {
-            try {
-                if (attempt > 0) {
-                    fireOnRetry(attempt, lastException);
-                    // attempt-1 because delayForAttempt(0) = initial delay
-                    Duration delay = retryPolicy.delayForAttempt(attempt - 1);
-                    Thread.sleep(delay.toMillis());
-                }
-                return execute(request);
-            } catch (ProxyCheckException e) {
-                lastException = e;
-                // Check both the exception and its cause (e.g., IOException wrapped in ProxyCheckException)
-                if (!retryPolicy.isRetryable(e) && !retryPolicy.isRetryable(e.getCause())) {
-                    throw e;
-                }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new ProxyCheckException("Retry interrupted", e);
-            }
-        }
-        // All retries exhausted, throw the last captured exception
-        assert lastException != null;
-        throw lastException;
+        return HttpExecutor.executeWithRetry(retryPolicy, () -> execute(request), this::fireOnRetry);
     }
 
+    // Acquires a rate-limit permit (blocking) then delegates raw HTTP to HttpExecutor.
     private String execute(HttpRequest request) {
         acquireRateLimit();
-        try {
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            validateStatusCode(response);
-            return response.body();
-        } catch (IOException e) {
-            throw new ProxyCheckException("HTTP request failed: " + e.getMessage(), e);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new ProxyCheckException("HTTP request interrupted", e);
-        }
+        return HttpExecutor.execute(httpClient, request);
     }
 
     private CompletableFuture<String> executeAsyncWithRetry(HttpRequest request, int attempt) {
-        // Async uses tryAcquire (non-blocking) instead of acquire (blocking)
-        // to avoid blocking the calling thread; fails fast if no permits available
-        if (rateLimiter != null && !rateLimiter.tryAcquire()) {
-            return CompletableFuture.failedFuture(
-                    new ProxyCheckException("Rate limit exceeded"));
-        }
-        return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
-                .thenApply(response -> {
-                    validateStatusCode(response);
-                    return response.body();
-                })
-                .exceptionallyCompose(ex -> {
-                    Throwable cause = ex instanceof java.util.concurrent.CompletionException ? ex.getCause() : ex;
-                    if (attempt < retryPolicy.maxRetries()
-                            && (retryPolicy.isRetryable(cause)
-                                || (cause instanceof ProxyCheckException pce && retryPolicy.isRetryable(pce.getCause())))) {
-                        fireOnRetry(attempt + 1, cause instanceof Exception e ? e : new ProxyCheckException(cause.getMessage(), cause));
-                        Duration delay = retryPolicy.delayForAttempt(attempt);
-                        return CompletableFuture.supplyAsync(() -> null,
-                                        CompletableFuture.delayedExecutor(delay.toMillis(), java.util.concurrent.TimeUnit.MILLISECONDS))
-                                .thenCompose(ignored -> executeAsyncWithRetry(request, attempt + 1));
+        // Async uses tryAcquire (non-blocking) per attempt, wrapped inside the action
+        // so the rate limit is re-checked on each retry attempt.
+        return HttpExecutor.executeAsyncWithRetry(retryPolicy,
+                a -> {
+                    if (rateLimiter != null && !rateLimiter.tryAcquire()) {
+                        return CompletableFuture.failedFuture(
+                                new ProxyCheckException("Rate limit exceeded"));
                     }
-                    return CompletableFuture.failedFuture(cause);
-                });
+                    return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
+                            .thenApply(response -> {
+                                HttpExecutor.validateStatusCode(response);
+                                return response.body();
+                            });
+                },
+                attempt, this::fireOnRetry);
     }
 
     private void acquireRateLimit() {
@@ -509,15 +515,6 @@ public final class ProxyCheckClient implements AutoCloseable {
                 Thread.currentThread().interrupt();
                 throw new ProxyCheckException("Rate limit acquire interrupted", e);
             }
-        }
-    }
-
-    // Only 5xx errors are thrown here. 4xx responses are handled by the API
-    // itself and returned as structured error responses (status=denied/error).
-    private static void validateStatusCode(HttpResponse<String> response) {
-        int code = response.statusCode();
-        if (code >= 500) {
-            throw new ProxyCheckException("Server error: HTTP " + code, code);
         }
     }
 
@@ -567,6 +564,12 @@ public final class ProxyCheckClient implements AutoCloseable {
     // produces separate cache entries (e.g., short vs. detailed response)
     private static String cacheKey(String address, QueryFlags flags) {
         return flags != null ? address + "|" + flags.toQueryString() : address;
+    }
+
+    // Unwraps a CompletionException to the root cause, converting to Exception if needed.
+    private static Exception unwrapAsException(Throwable ex) {
+        Throwable cause = ex instanceof CompletionException ce ? ce.getCause() : ex;
+        return cause instanceof Exception e ? e : new ProxyCheckException(cause.getMessage(), cause);
     }
 
     private void fireOnRequest(Collection<String> addresses) {

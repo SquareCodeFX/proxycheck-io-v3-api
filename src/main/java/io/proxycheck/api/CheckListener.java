@@ -36,7 +36,7 @@ public interface CheckListener {
         private Consumer<String> onCacheHit;
         private BiConsumer<Integer, Exception> onRetry;
 
-        Builder() {}
+        private Builder() {}
 
         public Builder onRequest(Consumer<Collection<String>> handler) {
             this.onRequest = handler;
