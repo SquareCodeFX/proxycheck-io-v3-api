@@ -78,10 +78,6 @@ public final class DashboardClient implements AutoCloseable {
         return new Builder();
     }
 
-    // =========================================================================
-    // Detection export
-    // =========================================================================
-
     /**
      * Exports the 100 most recent positive detections (proxy/VPN) from the dashboard.
      *
@@ -125,10 +121,6 @@ public final class DashboardClient implements AutoCloseable {
         }
         return DashboardParser.parseDetections(get(url.toString()));
     }
-
-    // =========================================================================
-    // Tag export
-    // =========================================================================
 
     /**
      * Exports the 100 most frequently used tags from today.
@@ -183,10 +175,6 @@ public final class DashboardClient implements AutoCloseable {
         return DashboardParser.parseTags(get(url.toString()));
     }
 
-    // =========================================================================
-    // Account usage
-    // =========================================================================
-
     /**
      * Returns today's account usage statistics (query counts, daily limit, plan tier).
      * Stats are delayed by a few minutes on the server side.
@@ -205,10 +193,6 @@ public final class DashboardClient implements AutoCloseable {
     public Map<String, QueryVolume> getQueryVolume() {
         return DashboardParser.parseQueryVolume(get(baseUrl("export/queries/") + "&json=1"));
     }
-
-    // =========================================================================
-    // Custom lists – read
-    // =========================================================================
 
     /**
      * Returns the names of all custom lists configured on the account.
@@ -245,10 +229,6 @@ public final class DashboardClient implements AutoCloseable {
         String url = baseUrl("lists/print/" + encode(listName)) + "&type=" + type.value();
         return DashboardParser.parseListEntries(get(url));
     }
-
-    // =========================================================================
-    // Custom lists – mutations
-    // =========================================================================
 
     /**
      * Appends entries to an existing custom list.
@@ -375,10 +355,6 @@ public final class DashboardClient implements AutoCloseable {
                 get(baseUrl("lists/forcedl/" + encode(listName))));
     }
 
-    // =========================================================================
-    // Custom rules
-    // =========================================================================
-
     /**
      * Returns a map of all custom rules (rule ID → rule name).
      *
@@ -460,10 +436,6 @@ public final class DashboardClient implements AutoCloseable {
         return DashboardParser.parseDashboardResponse(
                 post(baseUrl("rules/disable/"), "name=" + encode(nameOrId)));
     }
-
-    // =========================================================================
-    // CORS manipulation
-    // =========================================================================
 
     /**
      * Returns the list of allowed CORS origin domains configured on the account.
@@ -553,10 +525,6 @@ public final class DashboardClient implements AutoCloseable {
         return DashboardParser.parseDashboardResponse(get(baseUrl("cors/clear/")));
     }
 
-    // =========================================================================
-    // HTTP internals
-    // =========================================================================
-
     private String get(String url) {
         return executeWithRetry(HttpRequest.newBuilder()
                 .uri(URI.create(url))
@@ -580,10 +548,6 @@ public final class DashboardClient implements AutoCloseable {
         return HttpExecutor.executeWithRetry(retryPolicy,
                 () -> HttpExecutor.execute(httpClient, request), null);
     }
-
-    // =========================================================================
-    // URL helpers
-    // =========================================================================
 
     /**
      * Returns the base URL for the given dashboard path with the API key already
@@ -619,10 +583,6 @@ public final class DashboardClient implements AutoCloseable {
             httpClient.close();
         }
     }
-
-    // =========================================================================
-    // Builder
-    // =========================================================================
 
     /**
      * Fluent builder for configuring a standalone {@link DashboardClient}.
