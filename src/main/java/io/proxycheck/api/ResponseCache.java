@@ -5,7 +5,6 @@ import io.proxycheck.api.model.ProxyCheckResponse;
 import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.Optional;
 
 /**
  * TTL-based, size-bounded response cache using a synchronized {@link LinkedHashMap}
@@ -30,16 +29,16 @@ final class ResponseCache {
         };
     }
 
-    synchronized Optional<ProxyCheckResponse> get(String key) {
+    synchronized ProxyCheckResponse get(String key) {
         var entry = entries.get(key);
         if (entry == null) {
-            return Optional.empty();
+            return null;
         }
         if (entry.isExpired()) {
             entries.remove(key);
-            return Optional.empty();
+            return null;
         }
-        return Optional.of(entry.response);
+        return entry.response;
     }
 
     synchronized void put(String key, ProxyCheckResponse response) {

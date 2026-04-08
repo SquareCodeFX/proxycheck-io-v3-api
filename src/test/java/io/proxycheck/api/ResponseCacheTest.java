@@ -23,14 +23,14 @@ class ResponseCacheTest {
 
         cache.put("1.2.3.4", response);
 
-        assertTrue(cache.get("1.2.3.4").isPresent());
-        assertEquals(response, cache.get("1.2.3.4").get());
+        assertNotNull(cache.get("1.2.3.4"));
+        assertEquals(response, cache.get("1.2.3.4"));
     }
 
     @Test
     void getMissReturnsEmpty() {
         var cache = new ResponseCache(Duration.ofMinutes(5), 100);
-        assertTrue(cache.get("1.2.3.4").isEmpty());
+        assertNull(cache.get("1.2.3.4"));
     }
 
     @Test
@@ -40,7 +40,7 @@ class ResponseCacheTest {
 
         Thread.sleep(80);
 
-        assertTrue(cache.get("1.2.3.4").isEmpty());
+        assertNull(cache.get("1.2.3.4"));
     }
 
     @Test
@@ -50,7 +50,7 @@ class ResponseCacheTest {
 
         cache.invalidate("1.2.3.4");
 
-        assertTrue(cache.get("1.2.3.4").isEmpty());
+        assertNull(cache.get("1.2.3.4"));
     }
 
     @Test
@@ -72,9 +72,9 @@ class ResponseCacheTest {
         cache.put("third", okResponse());
 
         assertEquals(2, cache.size());
-        assertTrue(cache.get("first").isEmpty());
-        assertTrue(cache.get("second").isPresent());
-        assertTrue(cache.get("third").isPresent());
+        assertNull(cache.get("first"));
+        assertNotNull(cache.get("second"));
+        assertNotNull(cache.get("third"));
     }
 
     @Test

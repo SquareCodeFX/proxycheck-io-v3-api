@@ -197,7 +197,7 @@ public final class ProxyCheckClient implements AutoCloseable {
         }
         // Auto-split into batches of MAX_BATCH_SIZE to respect the API limit
         if (filtered.size() > MAX_BATCH_SIZE) {
-            return checkInBatches(new ArrayList<>(filtered), flags);
+            return checkInBatches(filtered, flags);
         }
         fireOnRequest(filtered);
         try {
@@ -341,9 +341,9 @@ public final class ProxyCheckClient implements AutoCloseable {
         if (filtered.size() == 1) {
             return checkAsync(filtered.iterator().next(), flags);
         }
-        // Auto-split into sequential async batches of MAX_BATCH_SIZE
+        // Auto-split into parallel async batches of MAX_BATCH_SIZE
         if (filtered.size() > MAX_BATCH_SIZE) {
-            return checkAsyncInBatches(new ArrayList<>(filtered), flags);
+            return checkAsyncInBatches(filtered, flags);
         }
         fireOnRequest(filtered);
         return executeAsyncWithRetry(buildPostRequest(filtered, flags), 0)
@@ -360,36 +360,40 @@ public final class ProxyCheckClient implements AutoCloseable {
                 });
     }
 
-    // Chains async POST requests for each MAX_BATCH_SIZE slice, merging into a
-    // single ProxyCheckResponse, mirroring the behavior of checkInBatches().
+    // Fires all batch POST requests in parallel, then merges results once all complete.
     private CompletableFuture<ProxyCheckResponse> checkAsyncInBatches(List<String> addresses, QueryFlags flags) {
-        CompletableFuture<ProxyCheckResponse.Builder> chain =
-                CompletableFuture.completedFuture(new ProxyCheckResponse.Builder());
+        var futures = new ArrayList<CompletableFuture<ProxyCheckResponse>>();
         for (int i = 0; i < addresses.size(); i += MAX_BATCH_SIZE) {
             final var batch = addresses.subList(i, Math.min(i + MAX_BATCH_SIZE, addresses.size()));
-            chain = chain.thenCompose(combined -> {
-                fireOnRequest(batch);
-                return executeAsyncWithRetry(buildPostRequest(batch, flags), 0)
-                        .thenApply(json -> {
-                            var batchResponse = parseResponse(json, flags);
-                            cacheIndividualResults(batchResponse, flags);
-                            fireOnResponse(batch, batchResponse);
-                            // Merge results; status and metadata come from the last batch
-                            if (batchResponse.status() != null) combined.status(batchResponse.status());
-                            if (batchResponse.message() != null) combined.message(batchResponse.message());
-                            if (batchResponse.node() != null) combined.node(batchResponse.node());
-                            batchResponse.ipResults().forEach(combined::addIpResult);
-                            batchResponse.emailResults().forEach(combined::addEmailResult);
-                            return combined;
-                        })
-                        .whenComplete((r, ex) -> {
-                            if (ex != null) {
-                                fireOnError(batch, unwrapAsException(ex));
-                            }
-                        });
-            });
+            fireOnRequest(batch);
+            futures.add(executeAsyncWithRetry(buildPostRequest(batch, flags), 0)
+                    .thenApply(json -> {
+                        var batchResponse = parseResponse(json, flags);
+                        cacheIndividualResults(batchResponse, flags);
+                        fireOnResponse(batch, batchResponse);
+                        return batchResponse;
+                    })
+                    .whenComplete((r, ex) -> {
+                        if (ex != null) {
+                            fireOnError(batch, unwrapAsException(ex));
+                        }
+                    }));
         }
-        return chain.thenApply(ProxyCheckResponse.Builder::build);
+        return CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new))
+                .thenApply(v -> {
+                    var combined = new ProxyCheckResponse.Builder();
+                    for (var future : futures) {
+                        // All futures are already complete at this point
+                        var batchResponse = future.join();
+                        // Status and metadata come from the last batch (consistent with sync behavior)
+                        if (batchResponse.status() != null) combined.status(batchResponse.status());
+                        if (batchResponse.message() != null) combined.message(batchResponse.message());
+                        if (batchResponse.node() != null) combined.node(batchResponse.node());
+                        batchResponse.ipResults().forEach(combined::addIpResult);
+                        batchResponse.emailResults().forEach(combined::addEmailResult);
+                    }
+                    return combined.build();
+                });
     }
 
     /**
@@ -431,9 +435,9 @@ public final class ProxyCheckClient implements AutoCloseable {
         return !whitelist.isEmpty() && whitelist.contains(address);
     }
 
-    private Collection<String> filterWhitelisted(Collection<String> addresses) {
+    private List<String> filterWhitelisted(Collection<String> addresses) {
         if (whitelist.isEmpty()) {
-            return addresses;
+            return addresses instanceof List<String> l ? l : new ArrayList<>(addresses);
         }
         return addresses.stream()
                 .filter(a -> !whitelist.contains(a))
@@ -527,7 +531,7 @@ public final class ProxyCheckClient implements AutoCloseable {
             return null;
         }
         String key = cacheKey(address, flags);
-        return cache.get(key).orElse(null);
+        return cache.get(key);
     }
 
     // Only cache successful responses to avoid persisting transient errors
@@ -544,20 +548,12 @@ public final class ProxyCheckClient implements AutoCloseable {
             return;
         }
         var singleFlags = flags != null && flags.isShort() ? null : flags;
-        response.ipResults().forEach((address, ipResult) -> {
-            var single = new ProxyCheckResponse.Builder()
-                    .status(response.status())
-                    .addIpResult(address, ipResult)
-                    .build();
-            cache.put(cacheKey(address, singleFlags), single);
-        });
-        response.emailResults().forEach((address, emailResult) -> {
-            var single = new ProxyCheckResponse.Builder()
-                    .status(response.status())
-                    .addEmailResult(address, emailResult)
-                    .build();
-            cache.put(cacheKey(address, singleFlags), single);
-        });
+        response.ipResults().forEach((address, ipResult) ->
+                cache.put(cacheKey(address, singleFlags),
+                        ProxyCheckResponse.ofSingleIp(response.status(), address, ipResult)));
+        response.emailResults().forEach((address, emailResult) ->
+                cache.put(cacheKey(address, singleFlags),
+                        ProxyCheckResponse.ofSingleEmail(response.status(), address, emailResult)));
     }
 
     // Cache key includes query flags so the same address with different flags

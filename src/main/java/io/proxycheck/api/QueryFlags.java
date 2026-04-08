@@ -21,6 +21,7 @@ public final class QueryFlags {
 
     // LinkedHashMap preserves insertion order for deterministic query strings
     private final Map<String, String> params = new LinkedHashMap<>();
+    private String cachedQueryString;
 
     private QueryFlags() {}
 
@@ -59,6 +60,7 @@ public final class QueryFlags {
      * @param enabled {@code true} to include the node field
      */
     public QueryFlags node(boolean enabled) {
+        cachedQueryString = null;
         params.put("node", enabled ? "1" : "0");
         return this;
     }
@@ -70,6 +72,7 @@ public final class QueryFlags {
      * @param enabled {@code true} to request the short response format
      */
     public QueryFlags shortResponse(boolean enabled) {
+        cachedQueryString = null;
         params.put("short", enabled ? "1" : "0");
         return this;
     }
@@ -80,6 +83,7 @@ public final class QueryFlags {
      * @param enabled {@code true} to request indented JSON
      */
     public QueryFlags prettyPrint(boolean enabled) {
+        cachedQueryString = null;
         params.put("p", enabled ? "1" : "0");
         return this;
     }
@@ -94,6 +98,7 @@ public final class QueryFlags {
         if (days < 1) {
             throw new IllegalArgumentException("days must be >= 1");
         }
+        cachedQueryString = null;
         params.put("days", String.valueOf(days));
         return this;
     }
@@ -105,6 +110,7 @@ public final class QueryFlags {
      * @param tag the tag label to associate with this query
      */
     public QueryFlags tag(String tag) {
+        cachedQueryString = null;
         params.put("tag", tag);
         return this;
     }
@@ -113,6 +119,7 @@ public final class QueryFlags {
      * Disables query tagging by sending {@code tag=0}.
      */
     public QueryFlags noTag() {
+        cachedQueryString = null;
         params.put("tag", "0");
         return this;
     }
@@ -123,6 +130,7 @@ public final class QueryFlags {
      * @param version the API version identifier
      */
     public QueryFlags ver(String version) {
+        cachedQueryString = null;
         params.put("ver", version);
         return this;
     }
@@ -140,12 +148,15 @@ public final class QueryFlags {
      * parameters have been set.
      */
     String toQueryString() {
+        if (cachedQueryString != null) {
+            return cachedQueryString;
+        }
         if (params.isEmpty()) {
-            return "";
+            return cachedQueryString = "";
         }
         var joiner = new StringJoiner("&", "&", "");
         params.forEach((key, value) ->
                 joiner.add(key + "=" + URLEncoder.encode(value, StandardCharsets.UTF_8)));
-        return joiner.toString();
+        return cachedQueryString = joiner.toString();
     }
 }

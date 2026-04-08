@@ -48,6 +48,32 @@ public final class ProxyCheckResponse {
         this.emailResults = Map.copyOf(builder.emailResults);
     }
 
+    // Direct constructor for single-result responses — bypasses Builder + LinkedHashMap overhead
+    private ProxyCheckResponse(ResponseStatus status, Map<String, IpResult> ipResults, Map<String, EmailResult> emailResults) {
+        this.status = status;
+        this.message = null;
+        this.node = null;
+        this.queryTime = null;
+        this.ipResults = ipResults;
+        this.emailResults = emailResults;
+    }
+
+    /**
+     * Creates a minimal response wrapping a single IP result. More efficient than
+     * the full {@link Builder} path when caching individual results from a batch response.
+     */
+    public static ProxyCheckResponse ofSingleIp(ResponseStatus status, String address, IpResult result) {
+        return new ProxyCheckResponse(status, Map.of(address, result), Map.of());
+    }
+
+    /**
+     * Creates a minimal response wrapping a single email result. More efficient than
+     * the full {@link Builder} path when caching individual results from a batch response.
+     */
+    public static ProxyCheckResponse ofSingleEmail(ResponseStatus status, String address, EmailResult result) {
+        return new ProxyCheckResponse(status, Map.of(), Map.of(address, result));
+    }
+
     /** Returns the API response status (OK, WARNING, DENIED, or ERROR). */
     public ResponseStatus status() {
         return status;
